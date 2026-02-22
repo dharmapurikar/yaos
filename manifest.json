@@ -1,7 +1,7 @@
 {
 	"id": "vault-crdt-sync",
 	"name": "Vault CRDT sync",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"minAppVersion": "1.5.0",
 	"description": "Real-time collaborative vault sync across devices using Yjs CRDTs and PartyKit.",
 	"author": "Kavin",

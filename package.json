@@ -1,6 +1,6 @@
 {
 	"name": "vault-crdt-sync",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Real-time collaborative vault sync across devices using Yjs CRDTs and PartyKit.",
 	"main": "main.js",
 	"type": "module",
