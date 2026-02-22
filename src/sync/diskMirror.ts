@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import type { VaultSync } from "./vaultSync";
 import type { EditorBindingManager } from "./editorBinding";
 import { ORIGIN_SEED } from "../types";
+import { ORIGIN_RESTORE } from "./snapshotClient";
 
 /**
  * Handles writeback from Y.Text -> disk with:
@@ -18,12 +19,31 @@ const SUPPRESS_MS = 500;
 const MAX_CONCURRENT_WRITES = 5;
 const BURST_THRESHOLD = 20;
 
-/** Origins that should NOT trigger a disk write. */
-const LOCAL_ORIGINS = new Set([
-	"y-codemirror.next",
+/** String origins that should NOT trigger a disk write. */
+const LOCAL_STRING_ORIGINS = new Set([
 	ORIGIN_SEED,
 	"disk-sync",
+	ORIGIN_RESTORE,
 ]);
+
+/**
+ * Determine whether a Yjs transaction origin is "local" (should NOT trigger
+ * a disk write). Remote sync from y-partykit uses `null` as the origin —
+ * that's the only case we want to write to disk.
+ *
+ * Local origins include:
+ *   - String origins: "vault-crdt-seed", "disk-sync", "snapshot-restore"
+ *   - Object origins: y-codemirror.next passes its YSyncConfig instance
+ *     as the transaction origin (not a string). Any non-null object origin
+ *     is a local editor transaction.
+ */
+function isLocalOrigin(origin: unknown): boolean {
+	if (origin == null) return false; // null/undefined = remote sync
+	if (typeof origin === "string") return LOCAL_STRING_ORIGINS.has(origin);
+	// Non-null, non-string origin (e.g. y-codemirror's YSyncConfig object)
+	// is always a local editor transaction.
+	return true;
+}
 
 export class DiskMirror {
 	private suppressedPaths = new Map<string, number>();
@@ -62,7 +82,7 @@ export class DiskMirror {
 		const pathObserver = (event: import("yjs").YMapEvent<string>) => {
 			event.changes.keys.forEach((change, path) => {
 				if (change.action === "add" || change.action === "update") {
-					if (!LOCAL_ORIGINS.has(event.transaction.origin as string)) {
+					if (!isLocalOrigin(event.transaction.origin)) {
 						this.log(`map: remote path added "${path}"`);
 						this.observeText(path);
 						this.scheduleWrite(path);
@@ -70,7 +90,7 @@ export class DiskMirror {
 				}
 				if (change.action === "delete") {
 					this.unobserveText(path);
-					if (!LOCAL_ORIGINS.has(event.transaction.origin as string)) {
+					if (!isLocalOrigin(event.transaction.origin)) {
 						void this.handleRemoteDelete(path);
 					}
 				}
@@ -87,7 +107,7 @@ export class DiskMirror {
 					const meta = this.vaultSync.meta.get(fileId);
 					if (
 						meta?.deleted &&
-						!LOCAL_ORIGINS.has(event.transaction.origin as string)
+						!isLocalOrigin(event.transaction.origin)
 					) {
 						void this.handleRemoteDelete(meta.path);
 					}
@@ -110,7 +130,7 @@ export class DiskMirror {
 		// that doesn't already have a per-file observer (i.e. closed).
 		// ---------------------------------------------------------------
 		const afterTxnHandler = (txn: Y.Transaction) => {
-			if (LOCAL_ORIGINS.has(txn.origin as string)) return;
+			if (isLocalOrigin(txn.origin)) return;
 
 			for (const [changedType] of txn.changed) {
 				if (!(changedType instanceof Y.Text)) continue;
@@ -184,7 +204,7 @@ export class DiskMirror {
 		if (!ytext) return;
 
 		const handler = (_event: import("yjs").YTextEvent, txn: import("yjs").Transaction) => {
-			if (LOCAL_ORIGINS.has(txn.origin as string)) return;
+			if (isLocalOrigin(txn.origin)) return;
 			this.log(`text observer: remote change to "${path}" (origin=${txn.origin})`);
 			this.scheduleWrite(path);
 		};

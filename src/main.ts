@@ -1156,15 +1156,20 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		if (!this.vaultSync) return;
 		if (!isMarkdownSyncable(file.path, this.excludePatterns)) return;
 
-		// External edit policy gate: control whether disk changes are
-		// imported into the CRDT based on the user's setting.
+		// Always skip files currently bound to an editor. When a file is
+		// open, the editor → yCollab pipeline is the authoritative source
+		// of truth. Reading from disk and diffing back into the Y.Text
+		// is redundant and can cause cursor jumps during fast typing.
+		if (this.editorBindings?.isBound(file.path)) {
+			this.log(`syncFileFromDisk: skipping "${file.path}" (editor-bound)`);
+			return;
+		}
+
+		// External edit policy gate: control whether disk changes to
+		// *closed* files are imported into the CRDT.
 		const policy = this.settings.externalEditPolicy;
 		if (policy === "never") {
 			this.log(`syncFileFromDisk: skipping "${file.path}" (external edit policy: never)`);
-			return;
-		}
-		if (policy === "closed-only" && this.editorBindings?.isBound(file.path)) {
-			this.log(`syncFileFromDisk: skipping "${file.path}" (open in editor, policy: closed-only)`);
 			return;
 		}
 
