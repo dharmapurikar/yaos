@@ -111,6 +111,9 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 
 	/** Pending stability checks for newly created/dropped files. */
 	private pendingStabilityChecks = new Set<string>();
+	/** Coalesced markdown disk events awaiting import into CRDT. */
+	private dirtyMarkdownPaths = new Map<string, "create" | "modify">();
+	private markdownDrainPromise: Promise<void> | null = null;
 
 	/** Last time a reconciliation completed (for cooldown). */
 	private lastReconcileTime = 0;
@@ -945,7 +948,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				if (!(file instanceof TFile)) return;
 
 				if (isMarkdownSyncable(file.path, this.excludePatterns)) {
-					void this.handleMarkdownModify(file);
+					void this.markMarkdownDirty(file, "modify");
 				} else if (this.blobSync && isBlobSyncable(file.path, this.excludePatterns) && !this.blobSync.isSuppressed(file.path)) {
 					this.blobSync.handleFileChange(file);
 				}
@@ -1002,7 +1005,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				if (!(file instanceof TFile)) return;
 
 				if (isMarkdownSyncable(file.path, this.excludePatterns)) {
-					void this.handleMarkdownCreate(file);
+					void this.markMarkdownDirty(file, "create");
 				} else if (this.blobSync && isBlobSyncable(file.path, this.excludePatterns) && !this.blobSync.isSuppressed(file.path)) {
 					// For blob files, use the same stability check before uploading
 					if (this.pendingStabilityChecks.has(file.path)) return;
@@ -1376,39 +1379,87 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		}
 	}
 
-	private async handleMarkdownModify(file: TFile): Promise<void> {
-		if (await this.diskMirror?.shouldSuppressModify(file)) {
-			this.log(`Suppressed modify event for "${file.path}"`);
-			return;
+	private async markMarkdownDirty(file: TFile, reason: "create" | "modify"): Promise<void> {
+		// Coalesce local markdown filesystem bursts by path and let one async
+		// drain loop consume them at real I/O speed instead of using fixed
+		// debounce delays for every modify/create event.
+		const previous = this.dirtyMarkdownPaths.get(file.path);
+		if (previous !== "create") {
+			this.dirtyMarkdownPaths.set(file.path, reason);
 		}
 
-		await this.syncFileFromDisk(file);
+		if (this.markdownDrainPromise) return;
+
+		this.markdownDrainPromise = this.drainDirtyMarkdownPaths()
+			.catch((err) => {
+				console.error("[vault-crdt-sync] markdown drain failed:", err);
+			})
+			.finally(() => {
+				this.markdownDrainPromise = null;
+				if (this.dirtyMarkdownPaths.size > 0) {
+					void this.markMarkdownDrainPending();
+				}
+			});
+
+		await this.markdownDrainPromise;
 	}
 
-	private async handleMarkdownCreate(file: TFile): Promise<void> {
-		if (await this.diskMirror?.shouldSuppressCreate(file)) {
-			this.log(`Suppressed create event for "${file.path}"`);
+	private async markMarkdownDrainPending(): Promise<void> {
+		if (this.markdownDrainPromise) return;
+		this.markdownDrainPromise = this.drainDirtyMarkdownPaths()
+			.catch((err) => {
+				console.error("[vault-crdt-sync] markdown drain failed:", err);
+			})
+			.finally(() => {
+				this.markdownDrainPromise = null;
+				if (this.dirtyMarkdownPaths.size > 0) {
+					void this.markMarkdownDrainPending();
+				}
+			});
+		await this.markdownDrainPromise;
+	}
+
+	private async drainDirtyMarkdownPaths(): Promise<void> {
+		while (this.dirtyMarkdownPaths.size > 0) {
+			// Clear the batch before processing so any new events that arrive
+			// while reads are in flight re-dirty the path for the next pass.
+			const batch = Array.from(this.dirtyMarkdownPaths.entries());
+			this.dirtyMarkdownPaths.clear();
+
+			for (const [path, reason] of batch) {
+				await this.processDirtyMarkdownPath(path, reason);
+			}
+		}
+	}
+
+	private async processDirtyMarkdownPath(
+		path: string,
+		reason: "create" | "modify",
+	): Promise<void> {
+		const abstractFile = this.app.vault.getAbstractFileByPath(path);
+		if (!(abstractFile instanceof TFile)) {
+			this.log(`Markdown ${reason}: "${path}" no longer exists, skipping`);
 			return;
 		}
 
-		if (this.vaultSync?.isPendingRenameTarget(file.path)) {
-			this.log(`Create: "${file.path}" is a pending rename target, skipping import`);
-			return;
+		if (reason === "create") {
+			if (await this.diskMirror?.shouldSuppressCreate(abstractFile)) {
+				this.log(`Suppressed create event for "${path}"`);
+				return;
+			}
+
+			if (this.vaultSync?.isPendingRenameTarget(path)) {
+				this.log(`Create: "${path}" is a pending rename target, skipping import`);
+				return;
+			}
+		} else {
+			if (await this.diskMirror?.shouldSuppressModify(abstractFile)) {
+				this.log(`Suppressed modify event for "${path}"`);
+				return;
+			}
 		}
 
-		// Debounce rapid creates (like unzip or folder paste)
-		if (this.pendingStabilityChecks.has(file.path)) return;
-		this.pendingStabilityChecks.add(file.path);
-
-		// Give the adapter a short quiet window before importing a new file.
-		const settled = await waitForDiskQuiet(this.app, file.path);
-		this.pendingStabilityChecks.delete(file.path);
-		if (!settled) {
-			this.log(`Create: "${file.path}" still changing after quiet window, skipping import`);
-			return;
-		}
-
-		await this.syncFileFromDisk(file);
+		await this.syncFileFromDisk(abstractFile);
 	}
 
 	private async syncFileFromDisk(file: TFile): Promise<void> {

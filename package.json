@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"test:ci": "node --import jiti/register tests/diff-regressions.mjs && node tests/disk-mirror-regressions.mjs && node --import jiti/register tests/closed-file-mirror.ts && node --import jiti/register tests/folder-rename.ts",
+		"test:ci": "node --import jiti/register tests/diff-regressions.mjs && node tests/disk-mirror-regressions.mjs && node tests/markdown-ingest-regressions.mjs && node --import jiti/register tests/closed-file-mirror.ts && node --import jiti/register tests/folder-rename.ts",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint ."
 	},
