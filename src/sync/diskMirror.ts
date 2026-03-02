@@ -671,6 +671,8 @@ export class DiskMirror {
 	}
 
 	private suppressWrite(path: string, content: string): void {
+		// Record the exact content we wrote so vault modify/create events can
+		// acknowledge our own write by observed state, not just timing.
 		const fingerprint = this.fingerprintContent(content);
 		this.suppressedPaths.set(normalizePath(path), {
 			kind: "write",
@@ -715,6 +717,8 @@ export class DiskMirror {
 		}
 
 		try {
+			// Read back the file only when a suppression candidate exists. This
+			// keeps the hot path cheap while making self-event detection causal.
 			const content = await this.app.vault.read(file);
 			const fingerprint = this.fingerprintContent(content);
 			if (
@@ -748,6 +752,8 @@ export class DiskMirror {
 	}
 
 	private runPathWriteLocked(path: string, work: () => Promise<void>): Promise<void> {
+		// All flush paths funnel through one per-path promise chain so direct
+		// flushes cannot overlap with queued writes for the same file.
 		const previous = this.pathWriteLocks.get(path) ?? Promise.resolve();
 		const next = previous.catch(() => undefined).then(work);
 		let tracked: Promise<void>;

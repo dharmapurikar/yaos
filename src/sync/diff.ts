@@ -30,6 +30,8 @@ export function applyDiffToYText(
 ): void {
 	if (oldText === newText) return;
 
+	// `fast-diff` gives us a synchronous Myers-style patch without building
+	// the old quadratic DP matrix that used to freeze on large notes.
 	const charOps = diffToCharOps(diff(oldText, newText));
 	if (charOps.length === 0) return;
 
