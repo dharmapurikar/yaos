@@ -1,112 +1,57 @@
-# YAOS
+# YAOS (Yet Another Obsidian Sync)
 
-Real-time, shared-state sync for Obsidian.
+**YAOS makes Obsidian sync feel like Apple Notes or Google Docs.** It is a free, self-hosted, and local-first sync engine that updates your notes instantly across all your devices.
 
-YAOS is not a timer-based file mover. It treats your vault as collaborative state: markdown edits are CRDT operations, not delayed file copies, so open notes update across devices immediately and merge without last-write-wins conflicts.
+Under the hood, it is a real-time CRDT engine running on Cloudflare Durable Objects.
 
-Obsidian already has an excellent paid sync product, and for most people it is the best "just works" option. YAOS exists for the narrower case where you want a self-hosted, local-first setup with the same core property that matters most: when you type on one device, the other device should reflect shared state, not eventually notice that a file changed.
+For the average user, hosting it yourself costs exactly $0/month on Cloudflare's free tier.
 
-That design choice is the whole point. Git, cloud drives, timer-based sync plugins, and even tools like Syncthing are fundamentally moving files around. YAOS is built around the idea that note-taking feels better when sync behaves like a live collaborative editor while still preserving a normal local Obsidian vault on disk.
-
-## Architecture docs
-
-If you want the design rationale and internals, start with **[ENGINEERING.md](ENGINEERING.md)**.
-
-- **[Monolithic vault CRDT](engineering/monolith.md)**
-- **[Filesystem bridge](engineering/filesystem-bridge.md)**
-- **[Checkpoint + journal persistence](engineering/checkpoint-journal.md)**
-- **[Warts and limits](engineering/warts-and-limits.md)**
-
+### One-click self-hosting
+- Click this button, then 'Create and deploy'
+- Open the URL created for you, and continue from there.
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/kavinsood/yaos/tree/main/server)
 
-## Why YAOS exists
+### Features
 
-Most alternatives solve a different problem:
+- **Instant Sync:** Changes update in milliseconds.
+- **Zero Conflicts:** You never see a "File modified externally" error again.
+- **Offline-First:** Go offline, edit for days, and everything merges perfectly when you reconnect.
+- **Zero-Config Setup:** Deploy with one click. Claim your server in the browser. Scan a link to pair your devices. *No terminal required.*
+- **Attachments & Backups (Optional):** Sync your images/PDFs and automatic daily backups, allowing you to selectively restore files if you accidentally delete something.
 
-- **Git** is great for deliberate commits, not tiny note edits across devices all day
-- **Cloud drive clients** replicate files, but they do not understand shared editing state
-- **Many sync plugins** scan, upload, and sleep; they are file movers running on a timer
-- **Syncthing** gets closer to real-time, but it is still syncing files, not collaborative state
+If you want the absolute best, zero-effort experience, you should pay for the official Obsidian Sync. If you want a free, instant, local-first alternative that you fully control, this is YAOS.
 
-Those tools can absolutely be good enough, and for some people they are the right tradeoff. YAOS exists because there is a real difference between "my files eventually converge" and "my note is shared state right now."
+### How is this different from iCloud or Remotely Save?
 
-## Features
+*Most free ways to sync Obsidian (like Dropbox, iCloud, or community plugins) are just moving files back and forth on a timer. This can lead to conflicted copies and delays in sync.
 
-- **Real-time sync** — Changes propagate instantly over WebSocket
-- **Conflict-free** — CRDT-based merging, not last-write-wins
-- **Offline-first** — Full offline support with IndexedDB persistence; syncs when reconnected
-- **Attachment sync** — Images, PDFs, and other files sync via R2 object storage (optional)
-- **Snapshots** — Daily automatic + on-demand backups to R2 with selective restore
-- **Remote cursors** — See where collaborators are editing (optional)
-- **Mobile support** — Works on Android/iOS with reconnection hardening
+YAOS syncs *keystrokes*. If you edit on two devices at once, the text merges flawlessly.
 
-## Performance
+If you want to read the longer rant, `<read here>`
+If you want the design rationale and internals, read these:
 
-The production bundle is currently about **235 KB raw / 69 KB gzipped** — small enough to stay invisible at startup.
-It keeps that footprint by externalizing Obsidian and CodeMirror, so the shipped code is just the sync engine: Yjs, persistence/network bindings, fast diffing, and snapshot compression.
+This repository keeps deep architecture notes under [`engineering/`](./engineering), with diagrams and operational limits documented alongside implementation details
 
-## Requirements
+- **[Monolithic vault CRDT](./engineering/monolith.md):** Why YAOS keeps one vault-level `Y.Doc`, what we gain (cross-file transactional behavior), and what we consciously trade off.
+- **[Filesystem bridge](./engineering/filesystem-bridge.md):** How noisy Obsidian file events are converted into safe CRDT updates with dirty-set draining and content-acknowledged suppression.
+- **[Attachment sync and R2 proxy model](./engineering/attachment-sync.md):** Native Worker proxy uploads, capability negotiation, and bounded fan-out under Cloudflare connection limits.
+- **[Checkpoint + journal persistence](./engineering/checkpoint-journal.md):** The storage-engine rewrite that removed full-state rewrites and introduced state-vector-anchored delta journaling.
+- **[Zero-config auth and claim flow](./engineering/zero-config-auth.md):** Browser claim UX, `obsidian://yaos` deep-link pairing, and env-token override behavior.
+- **[Warts and limits](./engineering/warts-and-limits.md):** Canonical limits, safety invariants, and the pragmatic compromises currently in production.
+- **[Queue pool behavior](./engineering/queue-pool.md):** Why attachment transfer queues currently favor deterministic behavior over maximal throughput.
 
-- Obsidian 1.5.0+
-- A sync server (see [Server setup](#server-setup))
-- For attachment sync / snapshots: an R2 bucket bound to the server
+### Installation
 
-## One-click self-hosting
+After you click deploy:
 
-The default **Deploy to Cloudflare** button above points Cloudflare at the `server/` subdirectory, so it treats the Worker as a standalone project.
-
-That gives you the fastest supported path:
-
-- It deploys the Worker from this repo to your Cloudflare account.
+- The Worker is deployed from this repo to your Cloudflare account.
 - The default deploy is **text sync first**. No R2 bucket is required up front.
 - On first visit to the deployed URL, the server starts in **unclaimed** mode and shows a small setup page.
-- That page generates a token in the browser and gives you an `obsidian://yaos?...` setup link you can open on desktop or mobile.
+- That page generates a token in the browser and gives you a deep link `obsidian://yaos?...`, and a QR code, so you can open on desktop or mobile.
 
 Later, if you want attachments and snapshots, add an R2 binding named `YAOS_BUCKET` in the Cloudflare dashboard and redeploy. The same deployed Worker will begin reporting those features as available.
 
-### How updates work after one-click deploy
-
-The Deploy to Cloudflare button does not keep your app attached to the original `kavinsood/yaos` repository.
-
-Instead, Cloudflare creates a new repository in your own Git account and connects your Worker to that new repo. Future pushes to **your generated repo** will redeploy automatically. Future pushes to the original YAOS template repo will not update your already-deployed app by themselves.
-
-From a user's perspective, that means you have three ways to pick up new YAOS changes later:
-
-1. Treat the generated repo as your real project and merge upstream YAOS changes into it.
-2. Push your own commits to that generated repo and let Cloudflare redeploy from there.
-3. Start fresh with the deploy button again if you prefer a clean re-deploy over syncing Git history.
-
-If you want the easiest ongoing setup, keep using the repo Cloudflare created for you as the source of truth for your deployment.
-
-## Installation
-
-### Manual install (recommended for personal use)
-
-1. Download `yaos.zip` from the [latest release](https://github.com/kavinsood/yaos/releases).
-
-2. Create the plugin folder in your vault:
-   ```
-   <vault>/.obsidian/plugins/yaos/
-   ```
-
-3. Extract `yaos.zip`, then copy `main.js`, `manifest.json`, and `styles.css` into that folder.
-
-4. Restart Obsidian, then enable the plugin in **Settings → Community plugins**.
-
-To update: download the latest `yaos.zip` and replace the old plugin files.
-
-### Build from source
-
-```bash
-git clone https://github.com/kavinsood/yaos.git
-cd yaos
-npm install
-npm run build
-```
-
-Copy `main.js`, `manifest.json`, and `styles.css` to your vault's plugin folder.
-
-## Configuration
+### Configuration
 
 After enabling, go to **Settings → YAOS**:
 
@@ -157,40 +102,15 @@ Snapshots are point-in-time backups of your vault's CRDT state, stored in R2.
 
 Requires R2 to be configured on the server.
 
-## Mobile (Android/iOS)
-
-The plugin works on mobile with some considerations:
-
-- **Reconnection**: Automatically reconnects when the app resumes from background
-- **Battery**: Reduce "Concurrent transfers" in settings to lower battery use during attachment sync
-- **Large vaults**: Initial sync may take longer; subsequent syncs are incremental
-- **Offline**: Full offline editing works; changes sync when back online
-
-If sync seems stuck after switching networks, use "Reconnect to sync server" from the command palette.
-
-## Server setup
-
-The plugin needs the YAOS Cloudflare Worker server. See **[server/README.md](server/README.md)** for:
-
-- Local development setup
-- The default Deploy to Cloudflare flow
-- Manual `wrangler` deploys on your own Cloudflare account
-- Post-deploy R2 setup for attachments and snapshots
-- Optional `SYNC_TOKEN` override for local dev or power users
-- Server-side limits and hardening behavior
-
-YAOS is intended to be self-deployed. Your server host, custom domain, and R2 bucket name can be whatever you control; the names shown in the docs are examples, not required identifiers.
-
 ## How it works
 
 1. Each markdown file gets a stable ID and a `Y.Text` CRDT for its content
 2. Today, those per-file `Y.Text` values live inside one shared vault-level `Y.Doc`, which keeps collaboration simple and fast for normal-sized note vaults
-3. Local markdown filesystem events are coalesced by path and drained into the CRDT at I/O speed, so bursty create/modify storms do not trigger one import per event
-4. Live editor edits flow through the Yjs binding to that shared document
-5. One vault maps to one Durable Object-backed sync room, so the shared state survives server restarts
-6. Offline edits are stored in IndexedDB and sync on reconnect
-7. Attachments sync separately via content-addressed R2 storage instead of being forced through the text CRDT
-8. Daily and on-demand snapshots exist as a safety net, not as the primary sync mechanism
+3. Live editor edits flow through the Yjs binding to that shared document
+4. One vault maps to one Durable Object-backed sync room, so the shared state survives server restarts
+5. Offline edits are stored in IndexedDB and sync on reconnect
+6. Attachments sync separately via content-addressed R2 storage instead of being forced through the text CRDT
+7. Daily and on-demand snapshots exist as a safety net
 
 In practice, that means:
 
@@ -198,26 +118,17 @@ In practice, that means:
 - Obsidian keeps behaving like Obsidian
 - YAOS keeps the disk mirror and the shared CRDT state aligned instead of asking devices to take polite turns uploading files later
 
-## Releasing
-
-Releases are automated. To cut a release:
-
-```bash
-npm version patch  # or minor/major
-git push --follow-tags
-```
-
-The workflow builds and attaches `yaos.zip` to a GitHub Release.
-
-## Limits and tradeoffs
+## Limits and Tradeoffs
 
 YAOS is optimized for personal or small-team note vaults, not for arbitrarily huge filesystem trees.
 
-- It currently keeps one shared `Y.Doc` for the vault, which keeps collaboration simple but gives the design a large-vault memory ceiling.
-- Tombstones are retained on purpose so stale clients do not resurrect deleted files.
-- Blob sync is intentionally conservative: a little less throughput is preferable to a more complex scheduler with harder-to-debug failure modes.
+It currently keeps one shared `Y.Doc` for the vault, which keeps collaboration simple but gives the design a memory ceiling for large vaults.
 
-If you want the detailed architecture and the reasoning behind these tradeoffs, read **[ENGINEERING.md](ENGINEERING.md)**.
+If you're going to dump 100K line log files or scrape Wikipedia, a dumb sync platform like Google Drive or Syncthing is preferable.
+
+YAOS trades infinite scalability for perfect real-time ergonomics.
+
+A vault of upto 50 MB of raw text (not including attachments like images and PDFs) will work beautifully.
 
 ## Troubleshooting
 
@@ -227,7 +138,7 @@ If you want the detailed architecture and the reasoning behind these tradeoffs, 
 
 **Sync stops on mobile**: Use "Reconnect to sync server" command. Check you have network connectivity.
 
-**Files not syncing**: Check exclude patterns. Files over max size are skipped. Use debug logging to see what's happening.
+**Files not syncing**: Check exclude patterns. Files over max size are skipped. Use debug logging to see what's happening, and then raise an issue on GitHub.
 
 **Conflicts after offline edits**: CRDTs merge automatically but the result depends on operation order. Review merged content if needed.
 
