@@ -36,9 +36,8 @@ export function renderSetupPage(options: SetupPageOptions): string {
            </div>`
 		: `<div class="step-text">
               <ol>
-                <li>In Obsidian, open <em>Community plugins</em> and install <strong>BRAT</strong>.</li>
-                <li>Open BRAT settings, select <em>Add beta plugin</em>, and paste <code>${DEPLOY_REPO}</code>.</li>
-                <li>Go back to Community plugins and make sure <strong>YAOS</strong> is installed and <strong>enabled</strong>.</li>
+                <li>After opening BRAT, select <em>Add beta plugin</em> and paste <code>${DEPLOY_REPO}</code>.</li>
+                <li>Return to Community plugins and make sure <strong>YAOS</strong> is installed and <strong>enabled</strong>.</li>
               </ol>
               <p class="micro-text">Prefer manual installation? <a href="${releaseZipUrl}">Download the zip</a>.</p>
            </div>`;
@@ -190,6 +189,31 @@ export function renderSetupPage(options: SetupPageOptions): string {
     .checkbox-wrapper:hover { background: rgba(123, 223, 246, 0.08); }
     .checkbox-wrapper input { width: 18px; height: 18px; accent-color: #7bdff6; cursor: pointer;}
     .checkbox-wrapper span { font-size: 14px; color: #f4f7fb; font-weight: 500;}
+    .step-recovery {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .step-recovery .ghost-btn {
+      padding: 10px 14px;
+      font-size: 13px;
+      text-decoration: none;
+      box-sizing: border-box;
+    }
+    .step-recovery .primary-action {
+      background: #f4f7fb;
+      color: #08111d;
+      border-color: transparent;
+      padding-inline: 16px;
+      box-shadow: 0 6px 16px rgba(244, 247, 251, 0.16);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    }
+    .step-recovery .primary-action:hover {
+      background: #ffffff;
+      transform: translateY(-1px);
+      box-shadow: 0 10px 22px rgba(244, 247, 251, 0.2);
+    }
 
     /* Step 2 states */
     .target-actions {
@@ -302,6 +326,10 @@ export function renderSetupPage(options: SetupPageOptions): string {
           <h2>Get the YAOS plugin</h2>
         </div>
         ${installationStep}
+        <div class="step-recovery">
+          <a class="ghost-btn primary-action" href="obsidian://show-plugin?id=obsidian42-brat">Open BRAT</a>
+          <button id="copy-repo-desktop" class="ghost-btn" type="button">Copy repo slug</button>
+        </div>
         <label class="checkbox-wrapper">
           <input id="installed" type="checkbox" />
           <span>I have installed and <strong>enabled</strong> YAOS.</span>
@@ -365,6 +393,8 @@ export function renderSetupPage(options: SetupPageOptions): string {
     const tokenInput = document.getElementById("token-input");
     const copyHostBtn = document.getElementById("copy-host");
     const copyTokenBtn = document.getElementById("copy-token");
+    const copyRepoDesktopBtn = document.getElementById("copy-repo-desktop");
+    const repoSlug = "kavinsood/yaos";
 
     function randomToken() {
       const bytes = new Uint8Array(32);
@@ -424,6 +454,13 @@ export function renderSetupPage(options: SetupPageOptions): string {
       const originalText = copyTokenBtn.textContent;
       copyTokenBtn.textContent = "Copied!";
       setTimeout(() => copyTokenBtn.textContent = originalText, 2000);
+    });
+
+    copyRepoDesktopBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(repoSlug);
+      const originalText = copyRepoDesktopBtn.textContent;
+      copyRepoDesktopBtn.textContent = "Copied!";
+      setTimeout(() => copyRepoDesktopBtn.textContent = originalText, 2000);
     });
 
     claimButton.addEventListener("click", async () => {
@@ -505,6 +542,38 @@ export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
     .cta[aria-disabled="true"] { opacity: 0.5; pointer-events: none; background: #4a5a6a;}
 
     .status { margin-top: 16px; font-size: 13px; color: #7bdff6; min-height: 20px;}
+    .recovery {
+      margin-top: 16px;
+      text-align: left;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .recovery p {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: #a9c0d8;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+    }
+    .ghost {
+      flex: 1;
+      border-radius: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      color: #f4f7fb;
+      text-decoration: none;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+    .ghost:active { opacity: 0.8; }
 
     details { margin-top: 32px; text-align: left; }
     summary { color: #6984a3; font-size: 13px; cursor: pointer; padding: 8px 0;}
@@ -527,6 +596,13 @@ export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
 
     <a id="connect-button" class="cta" href="#" aria-disabled="true">Connect Obsidian</a>
     <div id="status" class="status">Loading setup data...</div>
+    <div class="recovery">
+      <p>Don't have YAOS installed on this phone yet?</p>
+      <div class="row">
+        <a class="ghost" href="obsidian://show-plugin?id=obsidian42-brat">Open BRAT</a>
+        <button id="copy-repo" class="ghost" type="button">Copy repo slug</button>
+      </div>
+    </div>
 
     <details>
       <summary>Manual Fallback</summary>
@@ -545,6 +621,8 @@ export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
     const statusEl = document.getElementById("status");
     const hostInput = document.getElementById("host-input");
     const tokenInput = document.getElementById("token-input");
+    const copyRepoBtn = document.getElementById("copy-repo");
+    const repoSlug = "kavinsood/yaos";
 
     function parseHash() {
       const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
@@ -579,6 +657,15 @@ export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
         statusEl.textContent = "If Obsidian didn't open, tap the button above.";
       }, 300);
     }
+
+    copyRepoBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(repoSlug);
+      const oldText = copyRepoBtn.textContent;
+      copyRepoBtn.textContent = "Copied!";
+      setTimeout(() => {
+        copyRepoBtn.textContent = oldText;
+      }, 1800);
+    });
   </script>
 </body>
 </html>`;
