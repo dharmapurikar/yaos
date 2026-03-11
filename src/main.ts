@@ -1944,45 +1944,14 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 	}
 
 	private refreshStatusBar(): void {
-		if (!this.vaultSync) {
-			this.updateStatusBar("disconnected");
-			return;
-		}
-
-		if (this.vaultSync.fatalAuthError) {
-			this.updateStatusBar("unauthorized");
-			return;
-		}
-
-		// IndexedDB persistence failure is a hard degraded state for durability.
-		if (this.vaultSync.idbError) {
+		const state = this.computeSyncStatus();
+		if (state === "error" && this.vaultSync?.idbError) {
 			this.handleIndexedDbDegraded("status-check");
-			this.updateStatusBar("error");
-			return;
 		}
-
-		if (!this.reconciled) {
-			if (this.vaultSync.connected) {
-				this.updateStatusBar("syncing");
-			} else if (this.vaultSync.localReady) {
-				this.updateStatusBar("loading");
-			} else {
-				this.updateStatusBar("disconnected");
-			}
-			return;
-		}
-
-		if (this.vaultSync.connected) {
-			this.updateStatusBar("connected");
-		} else if (this.vaultSync.localReady) {
-			this.updateStatusBar("offline");
-		} else {
-			this.updateStatusBar("disconnected");
-		}
+		this.updateStatusBar(state);
 	}
 
-	private updateStatusBar(state: SyncStatus): void {
-		if (!this.statusBarEl) return;
+	private getSyncStatusLabel(state: SyncStatus): string {
 		const labels: Record<SyncStatus, string> = {
 			disconnected: "CRDT: Disconnected",
 			loading: "CRDT: Loading cache...",
@@ -1992,7 +1961,52 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			error: "CRDT: Error",
 			unauthorized: "CRDT: Unauthorized",
 		};
-		let text = labels[state];
+		return labels[state];
+	}
+
+	private computeSyncStatus(): SyncStatus {
+		if (!this.vaultSync) {
+			return "disconnected";
+		}
+
+		if (this.vaultSync.fatalAuthError) {
+			return "unauthorized";
+		}
+
+		if (this.vaultSync.idbError) {
+			return "error";
+		}
+
+		if (!this.reconciled) {
+			if (this.vaultSync.connected) {
+				return "syncing";
+			}
+			if (this.vaultSync.localReady) {
+				return "loading";
+			}
+			return "disconnected";
+		}
+
+		if (this.vaultSync.connected) {
+			return "connected";
+		}
+		if (this.vaultSync.localReady) {
+			return "offline";
+		}
+		return "disconnected";
+	}
+
+	getSettingsStatusSummary(): { state: SyncStatus; label: string } {
+		const state = this.computeSyncStatus();
+		return {
+			state,
+			label: this.getSyncStatusLabel(state).replace(/^CRDT:\s*/, ""),
+		};
+	}
+
+	private updateStatusBar(state: SyncStatus): void {
+		if (!this.statusBarEl) return;
+		let text = this.getSyncStatusLabel(state);
 
 		// Append blob transfer progress if active
 		const transfer = this.blobSync?.transferStatus;
