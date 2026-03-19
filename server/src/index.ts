@@ -106,7 +106,10 @@ function parseClientSchemaVersion(url: URL): { version: number; source: "query" 
 function parseSyncPath(pathname: string): { vaultId: string } | null {
 	const directMatch = pathname.match(/^\/vault\/sync\/([^/]+)$/);
 	if (directMatch) {
-		return { vaultId: decodeURIComponent(directMatch[1]!) };
+		const [, vaultId] = directMatch;
+		if (vaultId) {
+			return { vaultId: decodeURIComponent(vaultId) };
+		}
 	}
 	return null;
 }
@@ -114,8 +117,10 @@ function parseSyncPath(pathname: string): { vaultId: string } | null {
 function parseVaultPath(pathname: string): { vaultId: string; rest: string[] } | null {
 	const parts = pathname.split("/").filter(Boolean);
 	if (parts.length < 2 || parts[0] !== "vault") return null;
+	const vaultId = parts[1];
+	if (!vaultId) return null;
 	return {
-		vaultId: decodeURIComponent(parts[1]!),
+		vaultId: decodeURIComponent(vaultId),
 		rest: parts.slice(2),
 	};
 }
@@ -182,7 +187,7 @@ async function getStoredServerConfig(env: Env): Promise<StoredServerConfig> {
 	if (!res.ok) {
 		throw new Error(`config fetch failed (${res.status})`);
 	}
-	return await res.json() as StoredServerConfig;
+	return await res.json();
 }
 
 async function claimServerConfig(env: Env, tokenHash: string): Promise<boolean> {
@@ -319,7 +324,7 @@ async function handleBlobExists(
 
 	let body: { hashes?: string[] };
 	try {
-		body = await req.json() as typeof body;
+		body = await req.json();
 	} catch {
 		return json({ error: "invalid json" }, 400);
 	}
@@ -478,7 +483,7 @@ const worker = {
 
 			let body: { token?: string; vaultId?: string } = {};
 			try {
-				body = await req.json() as typeof body;
+				body = await req.json();
 			} catch {
 				return json({ error: "invalid json" }, 400);
 			}
@@ -637,7 +642,7 @@ const worker = {
 			if (req.method === "POST" && rest.length === 0) {
 				let body: { device?: string } = {};
 				try {
-					body = await req.json() as typeof body;
+					body = await req.json();
 				} catch {
 					body = {};
 				}
@@ -667,7 +672,7 @@ const worker = {
 
 				let body: { device?: string } = {};
 				try {
-					body = await req.json() as typeof body;
+					body = await req.json();
 				} catch {
 					body = {};
 				}
@@ -709,7 +714,10 @@ const worker = {
 					return withCors(json({ error: "snapshots_unavailable" }, 503));
 				}
 
-				const snapshotId = rest[0]!;
+				const snapshotId = rest[0];
+				if (!snapshotId) {
+					return withCors(json({ error: "missing_snapshot_id" }, 400));
+				}
 				const result = await getSnapshotPayload(
 					vaultRoute.vaultId,
 					snapshotId,

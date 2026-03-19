@@ -9,7 +9,7 @@ const BYTE_TO_HEX: string[] = (() => {
 export function bytesToHex(bytes: Uint8Array): string {
 	let out = "";
 	for (let i = 0; i < bytes.length; i++) {
-		out += BYTE_TO_HEX[bytes[i]!]!;
+		out += BYTE_TO_HEX[bytes[i] ?? 0] ?? "00";
 	}
 	return out;
 }

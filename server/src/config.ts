@@ -26,13 +26,13 @@ export class ServerConfig {
 			return json(await this.readConfig());
 		}
 
-		if (request.method === "POST" && url.pathname === "/__yaos/claim") {
-			let body: { tokenHash?: string } = {};
-			try {
-				body = await request.json() as typeof body;
-			} catch {
-				return json({ error: "invalid json" }, 400);
-			}
+			if (request.method === "POST" && url.pathname === "/__yaos/claim") {
+				let body: { tokenHash?: string } = {};
+				try {
+					body = await request.json();
+				} catch {
+					return json({ error: "invalid json" }, 400);
+				}
 
 			if (typeof body.tokenHash !== "string" || !body.tokenHash) {
 				return json({ error: "missing tokenHash" }, 400);

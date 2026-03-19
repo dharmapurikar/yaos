@@ -87,13 +87,13 @@ export class VaultSyncServer extends YServer {
 			});
 		}
 
-		if (request.method === "POST" && url.pathname === "/__yaos/trace") {
-			let body: { event?: string; data?: Record<string, unknown> } = {};
-			try {
-				body = await request.json() as typeof body;
-			} catch {
-				return json({ error: "invalid json" }, 400);
-			}
+			if (request.method === "POST" && url.pathname === "/__yaos/trace") {
+				let body: { event?: string; data?: Record<string, unknown> } = {};
+				try {
+					body = await request.json();
+				} catch {
+					return json({ error: "invalid json" }, 400);
+				}
 
 			if (!body.event || typeof body.event !== "string") {
 				return json({ error: "missing event" }, 400);
@@ -185,10 +185,10 @@ export class VaultSyncServer extends YServer {
 			...data,
 		};
 
-		console.log(JSON.stringify({
-			source: "vault-sync",
-			...entry,
-		}));
+			console.debug(JSON.stringify({
+				source: "vault-sync",
+				...entry,
+			}));
 
 		const existing =
 			(await this.ctx.storage.get<ServerTraceEntry[]>(DEBUG_TRACE_RING_KEY))

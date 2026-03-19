@@ -509,7 +509,7 @@ export class ChunkedDocStore {
 		}
 		updates.push(...state.journalUpdates);
 		if (updates.length === 0) return null;
-		if (updates.length === 1) return updates[0]!;
+			if (updates.length === 1) return updates[0] ?? null;
 		return Y.mergeUpdates(updates);
 	}
 

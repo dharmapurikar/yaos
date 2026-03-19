@@ -14,9 +14,11 @@ export async function mapWithConcurrency<T, R>(
 			const index = nextIndex;
 			nextIndex++;
 			if (index >= items.length) return;
-			results[index] = await worker(items[index]!, index);
+				const item = items[index];
+				if (item === undefined) return;
+				results[index] = await worker(item, index);
+			}
 		}
-	}
 
 	await Promise.all(
 		Array.from({ length: normalizedLimit }, () => runWorker()),
