@@ -41,10 +41,51 @@ From the claim page, open the setup link or scan the QR code. YAOS will fill in 
 
 ## Updating your server
 
-1. Open **Settings → YAOS → Advanced** and set your generated deployment repo URL.
-2. Click **Initialize updater** once (GitHub only, if workflows are missing).
-3. Click **Open update action** and run the update workflow.
-4. Cloudflare redeploys automatically after the workflow commit.
+YAOS is designed to be zero-terminal, but because you own your infrastructure, you control when updates apply.
+
+### 1-minute summary
+
+1. One-time setup: click **Initialize updater** in YAOS settings.
+2. Normal use: do nothing until YAOS notifies you that an update is available.
+3. Update: click **Open update action**, run workflow with `update`, and Cloudflare redeploys automatically.
+
+### Phase 1: Initialize updater (one-time only)
+
+1. Open **Settings → YAOS → Advanced**.
+2. Set **Deployment repo URL** to your generated repository (for example `https://github.com/your-username/yaos`).
+3. Click **Initialize updater**.
+4. GitHub opens with a pre-filled workflow file. Click **Commit changes**.
+
+You only do this once per deployment repo.
+
+### Phase 2: Apply an update
+
+1. Open YAOS settings and click **Open update action**.
+2. In GitHub Actions, click **Run workflow**.
+3. Leave action as `update` and run it.
+4. Cloudflare detects the new commit and redeploys your existing Worker.
+
+### Phase 3: Roll back an update
+
+1. Open the same update workflow.
+2. Click **Run workflow**.
+3. Change action to `revert` and run.
+
+This reverts the last YAOS update commit and redeploys the previous server code.
+
+### Migration-required releases
+
+Some releases require manual infrastructure or data migration steps. For those releases, the 1-click updater intentionally aborts and prints a clear warning in workflow logs.
+
+If update fails with a migration-required message:
+
+1. Do not force apply blindly.
+2. Read the release notes.
+3. Follow the migration instructions, then retry.
+
+### Why not click Deploy to Cloudflare again?
+
+Re-clicking Deploy is not a safe update path for a stateful server. YAOS uses a Git-driven update workflow so the same Worker identity, Durable Object bindings, and history are preserved.
 
 ## Why YAOS exists
 
@@ -78,6 +119,7 @@ If you want the design rationale and internals, this repository keeps deep archi
 - **[Attachment sync and R2 proxy model](./engineering/attachment-sync.md):** Native Worker proxy uploads, capability negotiation, and bounded fan-out under Cloudflare connection limits.
 - **[Checkpoint + journal persistence](./engineering/checkpoint-journal.md):** The storage-engine rewrite that removed full-state rewrites and introduced state-vector-anchored delta journaling.
 - **[Zero-config auth and claim flow](./engineering/zero-config-auth.md):** Browser claim UX, `obsidian://yaos` deep-link pairing, and env-token override behavior.
+- **[Zero-ops update pipeline](./engineering/zero-ops-update-pipeline.md):** Why detached deploy repos need bootstrap injection, reusable workflows, and migration safety gates.
 - **[Warts and limits](./engineering/warts-and-limits.md):** Canonical limits, safety invariants, and the pragmatic compromises currently in production.
 
 ## Configuration
