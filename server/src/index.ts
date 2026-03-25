@@ -31,6 +31,7 @@ const CORS_EXPOSE_HEADERS = "X-YAOS-Snapshot-Day";
 
 interface Env {
 	SYNC_TOKEN?: string;
+	YAOS_CANONICAL_REPO?: string;
 	YAOS_SYNC: DurableObjectNamespace<VaultSyncServer>;
 	YAOS_CONFIG: DurableObjectNamespace;
 	YAOS_BUCKET?: R2Bucket;
@@ -188,6 +189,12 @@ async function hashToken(token: string): Promise<string> {
 
 function supportsBuckets(env: Env): boolean {
 	return env.YAOS_BUCKET !== undefined;
+}
+
+function canonicalRepoForSetup(env: Env): string | undefined {
+	const raw = env.YAOS_CANONICAL_REPO?.trim();
+	if (!raw) return undefined;
+	return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(raw) ? raw : undefined;
 }
 
 async function getStoredServerConfig(env: Env): Promise<StoredServerConfig> {
@@ -490,12 +497,20 @@ const worker = {
 					attachments: supportsBuckets(env),
 					snapshots: supportsBuckets(env),
 				})
-				: renderSetupPage({ host: url.origin });
+				: renderSetupPage({
+					host: url.origin,
+					deployRepo: canonicalRepoForSetup(env),
+				});
 			return html(body);
 		}
 
 		if (req.method === "GET" && url.pathname === "/mobile-setup") {
-			return html(renderMobileSetupPage({ host: url.origin }));
+			return html(
+				renderMobileSetupPage({
+					host: url.origin,
+					deployRepo: canonicalRepoForSetup(env),
+				}),
+			);
 		}
 
 		if (req.method === "GET" && url.pathname === "/api/capabilities") {

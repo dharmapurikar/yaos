@@ -1,5 +1,6 @@
 interface SetupPageOptions {
 	host: string;
+	deployRepo?: string;
 }
 
 interface RunningPageOptions {
@@ -11,6 +12,7 @@ interface RunningPageOptions {
 
 interface MobileSetupPageOptions {
 	host: string;
+	deployRepo?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -22,12 +24,22 @@ function escapeHtml(value: string): string {
 }
 
 const IS_MARKETPLACE_APPROVED = false;
-const DEPLOY_REPO = "kavinsood/yaos";
+const DEFAULT_DEPLOY_REPO = "kavinsood/yaos";
+
+function normalizeDeployRepo(value: string | undefined): string {
+	const raw = value?.trim();
+	if (!raw) return DEFAULT_DEPLOY_REPO;
+	// Keep this strict: owner/repo style slug only.
+	if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(raw)) {
+		return DEFAULT_DEPLOY_REPO;
+	}
+	return raw;
+}
 
 export function renderSetupPage(options: SetupPageOptions): string {
 	const safeHost = escapeHtml(options.host);
-	const releaseZipUrl =
-		"https://github.com/kavinsood/yaos/releases/latest/download/yaos.zip";
+	const deployRepo = normalizeDeployRepo(options.deployRepo);
+	const releaseZipUrl = `https://github.com/${deployRepo}/releases/latest/download/yaos.zip`;
 
 	// Cleaned up the installation copy slightly for better reading
 	const installationStep = IS_MARKETPLACE_APPROVED
@@ -36,7 +48,7 @@ export function renderSetupPage(options: SetupPageOptions): string {
            </div>`
 		: `<div class="step-text">
               <ol>
-                <li>After opening BRAT, select <em>Add beta plugin</em> and paste <code>${DEPLOY_REPO}</code>.</li>
+                <li>After opening BRAT, select <em>Add beta plugin</em> and paste <code>${deployRepo}</code>.</li>
                 <li>Return to Community plugins and make sure <strong>YAOS</strong> is installed and <strong>enabled</strong>.</li>
               </ol>
               <p class="micro-text">Prefer manual installation? <a href="${releaseZipUrl}">Download the zip</a>.</p>
@@ -403,7 +415,7 @@ export function renderSetupPage(options: SetupPageOptions): string {
 	    const copyTokenBtn = document.getElementById("copy-token");
 	    const copyVaultBtn = document.getElementById("copy-vault");
 	    const copyRepoDesktopBtn = document.getElementById("copy-repo-desktop");
-	    const repoSlug = "kavinsood/yaos";
+	    const repoSlug = ${JSON.stringify(deployRepo)};
 
 	    function randomToken() {
 	      const bytes = new Uint8Array(32);
@@ -533,6 +545,7 @@ export function renderSetupPage(options: SetupPageOptions): string {
 
 export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
 	const safeHost = escapeHtml(options.host);
+	const deployRepo = normalizeDeployRepo(options.deployRepo);
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -625,7 +638,7 @@ export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
     <div class="recovery">
       <p>Don't have YAOS installed on this phone yet?</p>
       <p style="margin-top: 6px;">1. Open BRAT in Obsidian.</p>
-      <p style="margin-top: 4px;">2. Add repo <code style="font-size:12px;">kavinsood/yaos</code>.</p>
+      <p style="margin-top: 4px;">2. Add repo <code style="font-size:12px;">${deployRepo}</code>.</p>
       <p style="margin-top: 4px; margin-bottom: 10px;">3. Enable YAOS, then come back and tap <strong>Connect Obsidian</strong>.</p>
       <div class="row">
         <a class="ghost" href="obsidian://show-plugin?id=obsidian42-brat">Open BRAT</a>
@@ -654,7 +667,7 @@ export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
 	    const tokenInput = document.getElementById("token-input");
 	    const vaultInput = document.getElementById("vault-input");
 	    const copyRepoBtn = document.getElementById("copy-repo");
-	    const repoSlug = "kavinsood/yaos";
+	    const repoSlug = ${JSON.stringify(deployRepo)};
 
     function parseHash() {
       const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
