@@ -1,8 +1,11 @@
 # YAOS Security & Code Quality Audit - Executive Summary
 
 **Audit Date:** 2026-04-09
+
 **Project:** YAOS (Yet Another Obsidian Sync) v1.5.1
+
 **Codebase Size:** ~23,500 lines of TypeScript/JavaScript
+
 **Components:** Obsidian plugin (client) + Cloudflare Worker (server)
 
 ---
