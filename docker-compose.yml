@@ -1,0 +1,15 @@
+services:
+  yaos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8787:8787"
+    volumes:
+      - yaos-data:/data
+    environment:
+      - SYNC_TOKEN=${SYNC_TOKEN}
+    restart: unless-stopped
+
+volumes:
+  yaos-data:

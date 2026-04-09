@@ -1,0 +1,24 @@
+name = "yaos"
+main = "src/index.ts"
+compatibility_date = "2026-03-02"
+
+[[durable_objects.bindings]]
+name = "YAOS_SYNC"
+class_name = "VaultSyncServer"
+
+[[durable_objects.bindings]]
+name = "YAOS_CONFIG"
+class_name = "ServerConfig"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["VaultSyncServer", "ServerConfig"]
+
+# Local R2 emulation — persisted to /data via --persist-to flag.
+# Miniflare stores objects on the container filesystem, not Cloudflare R2.
+[[r2_buckets]]
+binding = "YAOS_BUCKET"
+bucket_name = "yaos-bucket"
+
+[observability.logs]
+enabled = true
