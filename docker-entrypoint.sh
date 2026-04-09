@@ -15,6 +15,6 @@ fi
 
 exec npx wrangler dev \
   --config wrangler.docker.toml \
-  --host 0.0.0.0 \
+  --ip 0.0.0.0 \
   --port 8787 \
   --persist-to /data
