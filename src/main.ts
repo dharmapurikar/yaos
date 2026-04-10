@@ -291,6 +291,11 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 	/** YAOS startup/reconciliation has completed enough to trust local attachment presence checks. */
 	private blobDownloadGateStartupReady = false;
 
+	/** Interval handle for periodic filesystem polling (detects external changes). */
+	private fsPollingInterval: ReturnType<typeof setInterval> | null = null;
+	/** True while an fs-poll scan is running — prevents overlapping scans. */
+	private fsPollInFlight = false;
+
 	private isMarkdownPathSyncable(path: string): boolean {
 		return isMarkdownSyncable(path, this.excludePatterns, this.app.vault.configDir);
 	}
@@ -592,6 +597,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			this.log("Startup complete");
 			this.scheduleTraceStateSnapshot("startup-complete");
 			this.markBlobDownloadStartupReady("startup-complete");
+			this.startFsPolling();
 			void this.refreshServerTrace();
 
 			// Trigger daily snapshot (noop if already taken today).
@@ -1086,6 +1092,108 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 	}
 
 	// -------------------------------------------------------------------
+	// Filesystem polling (external change detection)
+	// -------------------------------------------------------------------
+
+	/**
+	 * Start (or restart) the periodic filesystem poll.
+	 * Compares file stats against the disk index to detect changes
+	 * made by external processes (git, scripts, file managers, etc.)
+	 * that Obsidian vault events may not capture.
+	 */
+	private startFsPolling(): void {
+		this.stopFsPolling();
+		const intervalSec = this.settings.fsWatchIntervalSeconds;
+		if (intervalSec <= 0) {
+			this.log("Filesystem polling disabled (interval=0)");
+			return;
+		}
+		const intervalMs = intervalSec * 1000;
+		this.log(`Filesystem polling started (every ${intervalSec}s)`);
+		this.fsPollingInterval = setInterval(() => {
+			void this.pollFilesystemForChanges();
+		}, intervalMs);
+		this.register(() => this.stopFsPolling());
+	}
+
+	private stopFsPolling(): void {
+		if (this.fsPollingInterval) {
+			clearInterval(this.fsPollingInterval);
+			this.fsPollingInterval = null;
+		}
+	}
+
+	/**
+	 * Public method called from settings UI when the user changes the interval.
+	 */
+	restartFsPolling(): void {
+		if (this.reconciled) {
+			this.startFsPolling();
+		}
+	}
+
+	/**
+	 * Lightweight stat-only scan: compares current file list and mtimes/sizes
+	 * against the disk index. If any new, modified, or deleted files are
+	 * detected, triggers a conservative reconciliation.
+	 */
+	private async pollFilesystemForChanges(): Promise<void> {
+		if (!this.vaultSync || !this.reconciled) return;
+		if (this.fsPollInFlight || this.reconcileInFlight) return;
+		this.fsPollInFlight = true;
+
+		try {
+			const allMdFiles = this.app.vault.getMarkdownFiles();
+			const eligible: TFile[] = [];
+			for (const file of allMdFiles) {
+				if (this.isMarkdownPathSyncable(file.path)) {
+					eligible.push(file);
+				}
+			}
+
+			// Quick check: any new files not in the disk index?
+			let hasChanges = false;
+			for (const file of eligible) {
+				if (!this.diskIndex[file.path]) {
+					hasChanges = true;
+					break;
+				}
+			}
+
+			// Quick check: any indexed files removed from disk?
+			if (!hasChanges) {
+				const eligibleSet = new Set(eligible.map((f) => f.path));
+				for (const path of Object.keys(this.diskIndex)) {
+					if (!eligibleSet.has(path)) {
+						hasChanges = true;
+						break;
+					}
+				}
+			}
+
+			// Stat-based change detection for existing files
+			if (!hasChanges) {
+				const { changed } = await filterChangedFiles(
+					this.app,
+					eligible,
+					this.diskIndex,
+				);
+				hasChanges = changed.length > 0;
+			}
+
+			if (hasChanges) {
+				this.log("Filesystem poll: external changes detected, triggering reconciliation");
+				const mode = this.vaultSync.getSafeReconcileMode();
+				await this.runReconciliation(mode);
+			}
+		} catch (err) {
+			console.error("[yaos] Filesystem poll error:", err);
+		} finally {
+			this.fsPollInFlight = false;
+		}
+	}
+
+	// -------------------------------------------------------------------
 	// Editor binding
 	// -------------------------------------------------------------------
 
@@ -1377,6 +1485,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		}
 		this.blobSync?.destroy();
 
+		this.stopFsPolling();
 		if (this.statusInterval) {
 			clearInterval(this.statusInterval);
 			this.statusInterval = null;

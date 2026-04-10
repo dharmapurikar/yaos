@@ -42,6 +42,13 @@ export interface VaultSyncSettings {
 	updateRepoUrl: string;
 	/** Optional default branch for provider-native update links. */
 	updateRepoBranch: string;
+	/**
+	 * Interval in seconds for polling the filesystem for external changes.
+	 * Detects files added/modified/deleted by external processes (git, scripts, etc.)
+	 * that Obsidian's vault events may not capture.
+	 * 0 = disabled. Default: 10.
+	 */
+	fsWatchIntervalSeconds: number;
 }
 
 export const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -61,6 +68,7 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
 	showRemoteCursors: true,
 	updateRepoUrl: "",
 	updateRepoBranch: "main",
+	fsWatchIntervalSeconds: 10,
 };
 
 const CLOUDFLARE_DEPLOY_URL = "https://deploy.workers.cloudflare.com/?url=https://github.com/kavinsood/yaos/tree/main/server";
@@ -688,6 +696,23 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.externalEditPolicy = value as ExternalEditPolicy;
 						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(advancedBody)
+			.setName("Filesystem polling interval (seconds)")
+			.setDesc("How often to scan for changes made by external processes (git, scripts, etc.). Set to 0 to disable.")
+			.addText((text) =>
+				text
+					.setPlaceholder("10")
+					.setValue(String(this.plugin.settings.fsWatchIntervalSeconds))
+					.onChange(async (value) => {
+						const n = parseInt(value, 10);
+						if (!isNaN(n) && n >= 0) {
+							this.plugin.settings.fsWatchIntervalSeconds = n;
+							await this.plugin.saveSettings();
+							this.plugin.restartFsPolling();
+						}
 					}),
 			);
 
