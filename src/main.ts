@@ -23,6 +23,11 @@ import {
 import { isMarkdownSyncable, isBlobSyncable } from "./types";
 import { applyDiffToYText } from "./sync/diff";
 import {
+	isFrontmatterBlocked,
+	validateFrontmatterTransition,
+	type FrontmatterValidationResult,
+} from "./sync/frontmatterGuard";
+import {
 	type DiskIndex,
 	collectFileStats,
 	filterChangedFiles,
@@ -1880,6 +1885,15 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			if (existingText) {
 				const crdtContent = existingText.toJSON();
 				if (crdtContent === content) return;
+				if (this.shouldBlockFrontmatterIngest(
+					file.path,
+					crdtContent,
+					content,
+					"disk-to-crdt",
+				)) {
+					await this.updateDiskIndexForPath(file.path);
+					return;
+				}
 
 				// Apply a line-level diff to the Y.Text instead of delete-all + insert-all.
 				// This preserves CRDT history, cursor positions, and awareness state.
@@ -1890,6 +1904,15 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				);
 				applyDiffToYText(existingText, crdtContent, content, "disk-sync");
 			} else {
+				if (this.shouldBlockFrontmatterIngest(
+					file.path,
+					null,
+					content,
+					"disk-to-crdt-seed",
+				)) {
+					await this.updateDiskIndexForPath(file.path);
+					return;
+				}
 				this.vaultSync.ensureFile(
 					file.path,
 					content,
@@ -1989,12 +2012,39 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			});
 
 			if (existingText) {
+				if (this.shouldBlockFrontmatterIngest(
+					file.path,
+					crdtContent ?? "",
+					content,
+					"bound-file-local-only-divergence",
+				)) {
+					this.scheduleTraceStateSnapshot("frontmatter-ingest-blocked");
+					return true;
+				}
 				this.log(
 					`syncFileFromDisk: recovering "${file.path}" ` +
 					`(editor-bound local-only divergence: ${crdtContent?.length ?? 0} -> ${content.length} chars)`,
 				);
+				this.trace("trace", "bound-file-recovery-source-selected", {
+					path: file.path,
+					reason: "bound-file-local-only-divergence",
+					chosenSource: "disk",
+					action: "applied-repair-only",
+					editorLengths: localOnlyViews.map((state) => state.editorContent.length),
+					diskLength: content.length,
+					crdtLength: crdtContent?.length ?? null,
+				});
 				applyDiffToYText(existingText, crdtContent ?? "", content, "disk-sync-recover-bound");
 			} else {
+				if (this.shouldBlockFrontmatterIngest(
+					file.path,
+					null,
+					content,
+					"bound-file-local-only-seed",
+				)) {
+					this.scheduleTraceStateSnapshot("frontmatter-ingest-blocked");
+					return true;
+				}
 				this.log(
 					`syncFileFromDisk: recovering "${file.path}" ` +
 					`(editor-bound, missing CRDT text: seeding ${content.length} chars)`,
@@ -2004,23 +2054,23 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					content,
 					this.settings.deviceName,
 				);
-				}
+			}
 			this.boundRecoveryLocks.set(file.path, Date.now() + BOUND_RECOVERY_LOCK_MS);
 
-				for (const state of localOnlyViews) {
-					const repaired = this.editorBindings?.heal(
+			for (const state of localOnlyViews) {
+				const repaired = this.editorBindings?.repair(
+					state.view,
+					this.settings.deviceName,
+					"bound-file-local-only-divergence",
+				) ?? false;
+				if (!repaired) {
+					this.editorBindings?.rebind(
 						state.view,
 						this.settings.deviceName,
 						"bound-file-local-only-divergence",
-					) ?? false;
-					if (!repaired) {
-						this.editorBindings?.rebind(
-							state.view,
-							this.settings.deviceName,
-							"bound-file-local-only-divergence",
-						);
-					}
+					);
 				}
+			}
 
 			this.scheduleTraceStateSnapshot("bound-file-desync-recovery");
 			return true;
@@ -2041,12 +2091,30 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			// Active editor is open but idle; treat disk as an external edit
 			// and ingest it into CRDT instead of deferring forever.
 			if (existingText) {
+				if (this.shouldBlockFrontmatterIngest(
+					file.path,
+					crdtContent ?? "",
+					content,
+					"bound-file-open-idle-disk-recovery",
+				)) {
+					this.scheduleTraceStateSnapshot("frontmatter-ingest-blocked");
+					return true;
+				}
 				this.log(
 					`syncFileFromDisk: recovering "${file.path}" ` +
 					`(editor-bound external disk edit while idle: ${crdtContent?.length ?? 0} -> ${content.length} chars)`,
 				);
 				applyDiffToYText(existingText, crdtContent ?? "", content, "disk-sync-open-idle-recover");
 			} else {
+				if (this.shouldBlockFrontmatterIngest(
+					file.path,
+					null,
+					content,
+					"bound-file-open-idle-seed",
+				)) {
+					this.scheduleTraceStateSnapshot("frontmatter-ingest-blocked");
+					return true;
+				}
 				this.log(
 					`syncFileFromDisk: recovering "${file.path}" ` +
 					`(editor-bound idle disk edit, missing CRDT text: seeding ${content.length} chars)`,
@@ -2084,6 +2152,51 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		this.log(`syncFileFromDisk: skipping "${file.path}" (editor-bound, ambiguous divergence)`);
 		this.scheduleTraceStateSnapshot("bound-file-ambiguous");
 		return true;
+	}
+
+	private shouldBlockFrontmatterIngest(
+		path: string,
+		previousContent: string | null,
+		nextContent: string,
+		reason: string,
+	): boolean {
+		const validation = validateFrontmatterTransition(previousContent, nextContent);
+		if (!isFrontmatterBlocked(validation)) return false;
+
+		this.traceFrontmatterQuarantine(
+			path,
+			"disk-to-crdt",
+			reason,
+			validation,
+			previousContent?.length ?? null,
+			nextContent.length,
+		);
+		this.log(
+			`Frontmatter ingest blocked for "${path}" ` +
+			`(${validation.reasons.join(", ") || validation.risk})`,
+		);
+		return true;
+	}
+
+	private traceFrontmatterQuarantine(
+		path: string,
+		direction: "disk-to-crdt" | "crdt-to-disk",
+		reason: string,
+		validation: FrontmatterValidationResult,
+		previousLength: number | null,
+		nextLength: number,
+	): void {
+		this.trace("trace", "frontmatter-quarantined", {
+			path,
+			direction,
+			reason,
+			risk: validation.risk,
+			reasons: validation.reasons,
+			previousLength,
+			nextLength,
+			previousFrontmatterLength: validation.previousFrontmatterLength ?? null,
+			nextFrontmatterLength: validation.frontmatterLength,
+		});
 	}
 
 	private async updateDiskIndexForPath(path: string): Promise<void> {
