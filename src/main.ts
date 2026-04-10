@@ -1186,6 +1186,25 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				const mode = this.vaultSync.getSafeReconcileMode();
 				await this.runReconciliation(mode);
 			}
+
+			// Detect externally deleted files: CRDT paths whose files no
+			// longer exist on disk. Obsidian's file cache may be stale after
+			// external directory deletions, so we stat each path directly.
+			if (this.vaultSync) {
+				const crdtPaths = this.vaultSync.getActiveMarkdownPaths();
+				for (const path of crdtPaths) {
+					if (!this.isMarkdownPathSyncable(path)) continue;
+					const stat = await this.app.vault.adapter.stat(normalizePath(path));
+					if (!stat) {
+						this.log(`Filesystem poll: "${path}" deleted externally, removing from CRDT`);
+						this.editorBindings?.unbindByPath(path);
+						this.diskMirror?.notifyFileClosed(path);
+						this.openFilePaths.delete(path);
+						this.vaultSync.handleDelete(path, this.settings.deviceName);
+						delete this.diskIndex[path];
+					}
+				}
+			}
 		} catch (err) {
 			console.error("[yaos] Filesystem poll error:", err);
 		} finally {
