@@ -17,6 +17,8 @@ export interface VaultSyncSettings {
 	deviceName: string;
 	/** Enable verbose console.log output for debugging. */
 	debug: boolean;
+	/** Pause propagation of suspicious YAML frontmatter transitions. */
+	frontmatterGuardEnabled: boolean;
 	/** Comma-separated path prefixes to exclude from sync. */
 	excludePatterns: string;
 	/** Maximum file size in KB to sync via CRDT. Files larger are skipped. */
@@ -57,6 +59,7 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
 	vaultId: "",
 	deviceName: "",
 	debug: false,
+	frontmatterGuardEnabled: true,
 	excludePatterns: "",
 	maxFileSizeKB: 2048,
 	externalEditPolicy: "always",
@@ -695,6 +698,18 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.externalEditPolicy)
 					.onChange(async (value) => {
 						this.plugin.settings.externalEditPolicy = value as ExternalEditPolicy;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(advancedBody)
+			.setName("Frontmatter safety guard")
+			.setDesc("Pause suspicious YAML property updates before they spread. Disable only while troubleshooting valid frontmatter that is being blocked.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.frontmatterGuardEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.frontmatterGuardEnabled = value;
 						await this.plugin.saveSettings();
 					}),
 			);

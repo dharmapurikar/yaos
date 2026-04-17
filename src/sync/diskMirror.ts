@@ -6,6 +6,11 @@ import { ORIGIN_SEED } from "../types";
 import { ORIGIN_RESTORE } from "./snapshotClient";
 import type { TraceRecord } from "../debug/trace";
 import { formatUnknown, yTextToString } from "../utils/format";
+import {
+	isFrontmatterBlocked,
+	validateFrontmatterTransition,
+	type FrontmatterValidationResult,
+} from "./frontmatterGuard";
 
 /**
  * Handles writeback from Y.Text -> disk with:
@@ -98,6 +103,15 @@ export class DiskMirror {
 		private editorBindings: EditorBindingManager,
 		debug: boolean,
 		private trace?: TraceRecord,
+		private frontmatterGuardEnabled: () => boolean = () => true,
+		private onFrontmatterValidated?: (
+			path: string,
+			direction: "crdt-to-disk",
+			reason: "flush-write",
+			validation: FrontmatterValidationResult,
+			previousContent: string | null,
+			nextContent: string,
+		) => void,
 	) {
 		this.debug = debug;
 	}
@@ -440,11 +454,17 @@ export class DiskMirror {
 					this.log(`flushWrite: "${path}" unchanged, skipping`);
 					return;
 				}
+				if (this.shouldBlockFrontmatterWrite(path, currentContent, content)) {
+					return;
+				}
 
 				await this.suppressWrite(path, content);
 				await this.app.vault.modify(existing, content);
 				this.log(`flushWrite: updated "${path}" (${content.length} chars)`);
 			} else {
+				if (this.shouldBlockFrontmatterWrite(path, null, content)) {
+					return;
+				}
 				await this.suppressWrite(path, content);
 				const dir = normalized.substring(0, normalized.lastIndexOf("/"));
 				if (dir) {
@@ -462,6 +482,31 @@ export class DiskMirror {
 		} catch (err) {
 			console.error(`[yaos] flushWrite failed for "${path}":`, err);
 		}
+	}
+
+	private shouldBlockFrontmatterWrite(
+		path: string,
+		previousContent: string | null,
+		nextContent: string,
+	): boolean {
+		if (!this.frontmatterGuardEnabled()) return false;
+
+		const validation = validateFrontmatterTransition(previousContent, nextContent);
+		this.onFrontmatterValidated?.(
+			path,
+			"crdt-to-disk",
+			"flush-write",
+			validation,
+			previousContent,
+			nextContent,
+		);
+		if (!isFrontmatterBlocked(validation)) return false;
+
+		this.log(
+			`frontmatter write blocked for "${path}" ` +
+			`(${validation.reasons.join(", ") || validation.risk})`,
+		);
+		return true;
 	}
 
 	private async handleRemoteDelete(path: string): Promise<void> {
